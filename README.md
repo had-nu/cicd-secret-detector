@@ -78,12 +78,13 @@ go test -v ./...
 
 ```
 cicd-secret-detector/
+├── bin/
 ├── cmd/
-│   └── secret-detector/   # Main application entry point
+│   └── secret-detector/
 ├── internal/
-│   ├── detector/          # Secret pattern matching logic (Core Domain)
-│   ├── scanner/           # File system traversal logic
-│   ├── reporter/          # Output formatting logic
-│   └── types/             # Shared domain types
+│   ├── detector/
+│   ├── scanner/
+│   ├── reporter/
+│   └── types/
 └── testdata/              # Test fixtures
 ```
