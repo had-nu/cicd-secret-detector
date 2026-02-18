@@ -61,13 +61,6 @@ Found 1 potential secrets:
     Match: aws_access_key_id = AKIAIOSFODNN7EXAMPLE
 ```
 
-## Development
-
-This project adheres to strict idiomatic Go principles:
-- **Vertical Slices**: Code is organized by feature (`scanner`, `detector`, `reporter`), not layer.
-- **Standard Library First**: External dependencies are avoided unless absolutely necessary.
-- **Boring Code**: Clarity and simplicity are prioritized over cleverness.
-
 ### Running Tests
 
 ```bash
