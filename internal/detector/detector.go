@@ -51,21 +51,54 @@ func New(patterns []Pattern) *Detector {
 
 // Detect scans the provided content and returns a list of findings.
 func (d *Detector) Detect(content []byte) ([]types.Finding, error) {
-	var findings []types.Finding
-	lines := strings.Split(string(content), "\n")
+	lines := d.parseLines(content)
+	findings := d.scanLines(lines)
+	return findings, nil
+}
 
-	for i, line := range lines {
-		for _, p := range d.patterns {
-			if p.Regex.MatchString(line) {
-				findings = append(findings, types.Finding{
-					// FilePath is not known here, allows reuse. Caller sets it.
-					LineNumber: i + 1,
-					SecretType: p.Name,
-					Value:      strings.TrimSpace(line), // Store the matching line for now
-				})
-			}
+func (d *Detector) parseLines(content []byte) []string {
+	return strings.Split(string(content), "\n")
+}
+
+// scanLines checks all lines against all patterns.
+// Returns accumulated findings from all matches.
+func (d *Detector) scanLines(lines []string) []types.Finding {
+	findings := make([]types.Finding, 0)
+
+	for lineNum, line := range lines {
+		lineFindings := d.scanLine(line, lineNum+1)
+		findings = append(findings, lineFindings...)
+	}
+
+	return findings
+}
+
+// scanLine checks a single line against all patterns.
+// Returns all matches found on this line.
+func (d *Detector) scanLine(line string, lineNumber int) []types.Finding {
+	findings := make([]types.Finding, 0, len(d.patterns))
+
+	for i := range d.patterns {
+		if finding, matched := d.checkPattern(&d.patterns[i], line, lineNumber); matched {
+			findings = append(findings, finding)
 		}
 	}
 
-	return findings, nil
+	return findings
+}
+
+// checkPattern tests if a pattern matches the line.
+// Returns (finding, true) if matched, (empty, false) otherwise.
+func (d *Detector) checkPattern(pattern *Pattern, line string, lineNumber int) (types.Finding, bool) {
+	if !pattern.Regex.MatchString(line) {
+		return types.Finding{}, false
+	}
+
+	finding := types.Finding{
+		LineNumber: lineNumber,
+		SecretType: pattern.Name,
+		Value:      strings.TrimSpace(line),
+	}
+
+	return finding, true
 }
