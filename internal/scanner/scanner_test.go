@@ -21,75 +21,112 @@ func (m *mockDetector) Detect(content []byte) ([]types.Finding, error) {
 	return nil, nil
 }
 
-func TestScan(t *testing.T) {
-	// constant secret for testing
-	secretFinding := types.Finding{
-		LineNumber: 1,
-		SecretType: "TestSecret",
-		Value:      "secret",
+// alwaysFindsSecret returns a detector that reports a finding for any content.
+func alwaysFindsSecret() *mockDetector {
+	return &mockDetector{
+		detectFunc: func(content []byte) ([]types.Finding, error) {
+			return []types.Finding{{LineNumber: 1, SecretType: "TestSecret", Value: "secret"}}, nil
+		},
 	}
+}
 
+// neverFindsSecret returns a detector that reports no findings.
+func neverFindsSecret() *mockDetector {
+	return &mockDetector{}
+}
+
+func TestScan(t *testing.T) {
 	tests := []struct {
-		name     string
-		files    map[string]string // filename -> content
-		detector Detector
-		want     []types.Finding
-		wantErr  bool
+		name        string
+		files       map[string]string
+		detector    Detector
+		wantCount   int
+		description string
 	}{
 		{
-			name: "valid file with secret",
-			files: map[string]string{
-				"config.yaml": "has_secret",
-			},
-			detector: &mockDetector{
-				detectFunc: func(content []byte) ([]types.Finding, error) {
-					if string(content) == "has_secret" {
-						return []types.Finding{secretFinding}, nil
-					}
-					return nil, nil
-				},
-			},
-			want: []types.Finding{secretFinding},
+			name:        "regular file with secret is scanned",
+			files:       map[string]string{"config.yaml": "has_secret"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   1,
+			description: "standard files must always be scanned",
 		},
 		{
-			name: "ignored file",
-			files: map[string]string{
-				".git/HEAD": "ref: refs/heads/main",
-			},
-			detector: &mockDetector{
-				detectFunc: func(content []byte) ([]types.Finding, error) {
-					return []types.Finding{secretFinding}, nil // Should not be called
-				},
-			},
-			want: nil,
+			name:        ".env file must be scanned",
+			files:       map[string]string{".env": "API_KEY=supersecret"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   1,
+			description: ".env is a primary target for secrets and must NOT be ignored",
 		},
 		{
-			name: "nested valid file",
+			name:        ".aws credentials file must be scanned",
+			files:       map[string]string{".aws/credentials": "aws_secret_access_key=xxx"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   1,
+			description: ".aws directory holds cloud credentials and must NOT be ignored",
+		},
+		{
+			name:        "nested dotfile must be scanned",
+			files:       map[string]string{"config/.secrets": "db_password=hunter2"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   1,
+			description: "dotfiles in subdirectories must also be scanned",
+		},
+		{
+			name:        ".git directory is ignored",
+			files:       map[string]string{".git/HEAD": "ref: refs/heads/main"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   0,
+			description: ".git is VCS metadata and should be ignored",
+		},
+		{
+			name:        "vendor directory is ignored",
+			files:       map[string]string{"vendor/lib/code.go": "some_code"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   0,
+			description: "vendor contains third-party code outside developer control",
+		},
+		{
+			name:        "bin directory is ignored",
+			files:       map[string]string{"bin/app": "compiled binary"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   0,
+			description: "bin contains compiled artifacts, not source secrets",
+		},
+		{
+			name:        "node_modules is ignored",
+			files:       map[string]string{"node_modules/pkg/index.js": "code"},
+			detector:    alwaysFindsSecret(),
+			wantCount:   0,
+			description: "node_modules is third-party dependency code",
+		},
+		{
+			name:        "clean file returns no findings",
+			files:       map[string]string{"config.yaml": "foo: bar"},
+			detector:    neverFindsSecret(),
+			wantCount:   0,
+			description: "files without secrets must produce zero findings",
+		},
+		{
+			name: "multiple secret files returns all findings",
 			files: map[string]string{
-				"subdir/config.json": "has_secret",
+				".env":          "API_KEY=secret1",
+				"config.yaml":   "token: secret2",
+				".aws/creds":    "key=secret3",
 			},
-			detector: &mockDetector{
-				detectFunc: func(content []byte) ([]types.Finding, error) {
-					if string(content) == "has_secret" {
-						return []types.Finding{secretFinding}, nil
-					}
-					return nil, nil
-				},
-			},
-			want: []types.Finding{secretFinding},
+			detector:    alwaysFindsSecret(),
+			wantCount:   3,
+			description: "each file with a secret produces one finding",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temp dir
 			tmpDir, err := os.MkdirTemp("", "scanner_test")
 			if err != nil {
 				t.Fatalf("MkdirTemp failed: %v", err)
 			}
 			defer os.RemoveAll(tmpDir)
 
-			// Create files
 			for name, content := range tt.files {
 				path := filepath.Join(tmpDir, name)
 				if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -102,29 +139,10 @@ func TestScan(t *testing.T) {
 
 			s := New(tt.detector)
 			got, err := s.Scan(context.Background(), tmpDir)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Scan() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if err != nil {
+				t.Fatalf("Scan() unexpected error: %v", err)
 			}
 
-			// Normalize file paths in findings for comparison
-			// The scanner returns absolute paths (or whatever FileWalk returns joined with root)
-			// But our mock returns empty file path.
-			// Wait, FileScanner.scanFile enriches the finding with file path.
-			// So we need to expect the full path.
-
-			// Let's adjust expected findings to have the correct path
-			want := make([]types.Finding, len(tt.want))
-			for i, w := range tt.want {
-				// Find the key in files that corresponds to this finding...
-				// In our simple test case, we only have one file usually.
-				// But simpler: just check if we got the right number of findings and if the secret content matches.
-				// We can ignore the path for strict equality if we want, or do better:
-				w.FilePath = filepath.Join(tmpDir, getFileName(tt.files, w))
-				want[i] = w
-			}
-
-			// Actually simpler: just verify count and basic properties.
 			if len(got) != len(tt.want) {
 				t.Errorf("Scan() got %d findings, want %d", len(got), len(tt.want))
 			}
@@ -132,11 +150,42 @@ func TestScan(t *testing.T) {
 	}
 }
 
-// Helper to find filename for a finding - naive implementation for this test structure
+func TestShouldIgnoreDir(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		// Must be ignored — no secrets live here
+		{".git", true},
+		{".idea", true},
+		{".vscode", true},
+		{"vendor", true},
+		{"node_modules", true},
+		{"bin", true},
+
+		// Must NOT be ignored — these are prime secret locations
+		{".env", false},
+		{".aws", false},
+		{".ssh", false},
+		{".envrc", false},
+		{"config", false},
+		{"secrets", false},
+		{"credentials", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldIgnoreDir(tt.name)
+			if got != tt.want {
+				t.Errorf("shouldIgnoreDir(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+// Helper to find filename for a finding
 func getFileName(files map[string]string, f types.Finding) string {
 	for name := range files {
-		// In our test cases, typically one relevant file per test case or clear.
-		// For "valid file with secret", it's config.yaml
 		return name
 	}
 	return ""
