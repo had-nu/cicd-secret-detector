@@ -40,8 +40,7 @@ type Detector struct {
 	patterns []Pattern
 }
 
-// New creates a new Detector with the given patterns.
-// If no patterns are provided, it uses DefaultPatterns.
+// New creates a new Detector with the given patterns; If no patterns are provided, it uses DefaultPatterns.
 func New(patterns []Pattern) *Detector {
 	if len(patterns) == 0 {
 		patterns = DefaultPatterns()
@@ -73,8 +72,7 @@ func (d *Detector) scanLines(lines []string) []types.Finding {
 	return findings
 }
 
-// scanLine checks a single line against all patterns.
-// Returns all matches found on this line.
+// scanLine checks a single line against all patterns; Returns all matches found on this line.
 func (d *Detector) scanLine(line string, lineNumber int) []types.Finding {
 	findings := make([]types.Finding, 0, len(d.patterns))
 
@@ -87,8 +85,7 @@ func (d *Detector) scanLine(line string, lineNumber int) []types.Finding {
 	return findings
 }
 
-// checkPattern tests if a pattern matches the line.
-// Returns (finding, true) if matched, (empty, false) otherwise.
+// checkPattern tests if a pattern matches the line; Returns (finding, true) if matched, (empty, false) otherwise.
 func (d *Detector) checkPattern(pattern *Pattern, line string, lineNumber int) (types.Finding, bool) {
 	if !pattern.Regex.MatchString(line) {
 		return types.Finding{}, false
