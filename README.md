@@ -26,6 +26,24 @@ cd cicd-secret-detector
 go build -o secret-detector cmd/secret-detector/main.go
 ```
 
+### Docker installation (recommended)
+If you don't have Go installed, you can use Docker and Docker Compose to run the tool.
+
+#### Build the image:
+```bash
+docker compose build
+```
+
+#### Run a scan:
+```bash
+docker compose run secret-detector
+```
+
+You can also pass additional arguments like `-format json`:
+```bash
+docker compose run secret-detector -dir /src -format json
+```
+
 ## Usage
 
 ### Basic Scan

@@ -1,0 +1,6 @@
+services:
+  secret-detector:
+    build: .
+    volumes:
+      - .:/src
+    command: -dir /src
