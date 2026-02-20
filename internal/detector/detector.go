@@ -1,19 +1,23 @@
 package detector
 
 import (
+	"math"
 	"regexp"
 	"strings"
 
 	"github.com/hadnu/cicd-secret-detector/internal/types"
 )
 
-// Pattern defines a regex for a specific secret type.
+// Pattern defines a regex for a specific secret type and how to redact its match.
 type Pattern struct {
-	Name   string
-	Regex  *regexp.Regexp
-	Redact func(match string) string
+	Name       string
+	Regex      *regexp.Regexp
+	Redact     func(match string) string
+	MinEntropy float64
+	valueRegex *regexp.Regexp
 }
 
+// redactValue replaces the value portion of a key=value or key: value line.
 func redactValue(match string) string {
 	for i, ch := range match {
 		if ch == '=' || ch == ':' {
@@ -26,26 +30,66 @@ func redactValue(match string) string {
 func DefaultPatterns() []Pattern {
 	return []Pattern{
 		{
-			Name:  "AWS Access Key ID",
-			Regex: regexp.MustCompile(`(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}`),
-			// No key=value context — redact the whole value.
+			Name:   "AWS Access Key ID",
+			Regex:  regexp.MustCompile(`(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}`),
+			Redact: nil,
 		},
 		{
-			Name:   "AWS Secret Access Key",
-			Regex:  regexp.MustCompile(`(?i)aws_secret_access_key['"?]?\s*(=|:)\s*['"]?[A-Za-z0-9\/+=]{40}['"]?`),
-			Redact: redactValue, // keeps key name, hides value
+			Name:       "AWS Secret Access Key",
+			Regex:      regexp.MustCompile(`(?i)aws_secret_access_key['"?]?\s*(=|:)\s*['"]?[A-Za-z0-9\/+=]{40}['"]?`),
+			Redact:     redactValue,
+			MinEntropy: 3.5,
+			valueRegex: regexp.MustCompile(`(?i)aws_secret_access_key['"]?\s*(=|:)\s*['"]?([A-Za-z0-9\/+=]{40})['"]?`),
 		},
 		{
-			Name:  "Private Key",
-			Regex: regexp.MustCompile(`-----BEGIN ((EC|PGP|DSA|RSA|OPENSSH) )?PRIVATE KEY( BLOCK)?-----`),
-			// Header line has no value to preserve — full redaction is correct.
+			Name:   "Private Key",
+			Regex:  regexp.MustCompile(`-----BEGIN ((EC|PGP|DSA|RSA|OPENSSH) )?PRIVATE KEY( BLOCK)?-----`),
+			Redact: nil,
 		},
 		{
-			Name:   "Generic API Key",
-			Regex:  regexp.MustCompile(`(?i)(api_key|apikey|secret|token)['"]?\s*(=|:)\s*['"]?[a-zA-Z0-9]{16,64}['"]?`),
-			Redact: redactValue, // keeps key name, hides value
+			Name:       "Generic API Key",
+			Regex:      regexp.MustCompile(`(?i)(api_key|apikey|secret|token)['"]?\s*(=|:)\s*['"]?[a-zA-Z0-9]{16,64}['"]?`),
+			Redact:     redactValue,
+			MinEntropy: 3.5,
+			valueRegex: regexp.MustCompile(`(?i)(?:api_key|apikey|secret|token)['"]?\s*(?:=|:)\s*['"]?([a-zA-Z0-9]{16,64})['"]?`),
 		},
 	}
+}
+
+// shannonEntropy calculates the Shannon entropy of a string in bits per character.
+func shannonEntropy(s string) float64 {
+	if len(s) == 0 {
+		return 0
+	}
+
+	freq := make(map[rune]float64)
+	for _, ch := range s {
+		freq[ch]++
+	}
+
+	entropy := 0.0
+	length := float64(len(s))
+	for _, count := range freq {
+		p := count / length
+		entropy -= p * math.Log2(p)
+	}
+
+	return entropy
+}
+
+func extractValue(pattern *Pattern, match string) string {
+	if pattern.valueRegex == nil {
+		return match
+	}
+
+	groups := pattern.valueRegex.FindStringSubmatch(match)
+
+	// Return the last capture group — our patterns put the value last.
+	if len(groups) > 1 {
+		return groups[len(groups)-1]
+	}
+
+	return match
 }
 
 type Detector struct {
@@ -59,57 +103,46 @@ func New(patterns []Pattern) *Detector {
 	return &Detector{patterns: patterns}
 }
 
+// Detect scans the provided content and returns a list of findings.
 func (d *Detector) Detect(content []byte) ([]types.Finding, error) {
-	lines := d.parseLines(content)
-	findings := d.scanLines(lines)
-	return findings, nil
-}
-
-func (d *Detector) parseLines(content []byte) []string {
-	return strings.Split(string(content), "\n")
-}
-
-func (d *Detector) scanLines(lines []string) []types.Finding {
+	lines := strings.Split(string(content), "\n")
 	findings := make([]types.Finding, 0)
 
 	for lineNum, line := range lines {
-		lineFindings := d.scanLine(line, lineNum+1)
-		findings = append(findings, lineFindings...)
-	}
-
-	return findings
-}
-
-func (d *Detector) scanLine(line string, lineNumber int) []types.Finding {
-	findings := make([]types.Finding, 0, len(d.patterns))
-
-	for i := range d.patterns {
-		if finding, matched := d.checkPattern(&d.patterns[i], line, lineNumber); matched {
-			findings = append(findings, finding)
+		for i := range d.patterns {
+			if finding, matched := d.checkPattern(&d.patterns[i], line, lineNum+1); matched {
+				findings = append(findings, finding)
+			}
 		}
 	}
 
-	return findings
+	return findings, nil
 }
 
-// Returns (finding, true) if matched, (empty, false) otherwise.
+// checkPattern tests if a pattern matches the line and passes the entropy threshold.
 func (d *Detector) checkPattern(pattern *Pattern, line string, lineNumber int) (types.Finding, bool) {
-	if !pattern.Regex.MatchString(line) {
+	match := pattern.Regex.FindString(line)
+	if match == "" {
 		return types.Finding{}, false
 	}
 
-	match := pattern.Regex.FindString(line)
+	// Entropy check: extract the actual value and measure randomness to eliminates false positives.
+	if pattern.MinEntropy > 0 {
+		value := extractValue(pattern, match)
+		if shannonEntropy(value) < pattern.MinEntropy {
+			return types.Finding{}, false
+		}
+	}
+
 	redacted := "[REDACTED]"
 	if pattern.Redact != nil {
 		redacted = pattern.Redact(match)
 	}
 
-	finding := types.Finding{
+	return types.Finding{
 		LineNumber:    lineNumber,
 		SecretType:    pattern.Name,
-		Value:         strings.TrimSpace(line), // raw: internal use only
+		Value:         strings.TrimSpace(line),
 		RedactedValue: redacted,
-	}
-
-	return finding, true
+	}, true
 }
