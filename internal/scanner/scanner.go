@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/hadnu/cicd-secret-detector/internal/types"
@@ -16,7 +15,7 @@ type Detector interface {
 	Detect(content []byte) ([]types.Finding, error)
 }
 
-var ignoreDirs = map[string]struct{} {
+var ignoreDirs = map[string]struct{}{
 	".git":         {},
 	".idea":        {},
 	".vscode":      {},
@@ -32,34 +31,31 @@ type FileScanner struct {
 
 // New creates a new FileScanner.
 func New(d Detector) *FileScanner {
-	return &FileScanner {
-		detector: d
-	}
+	return &FileScanner{detector: d}
 }
 
 // Scan walks the root directory and scans files for secrets.
-func (s *FileScanner) Scan(ctx context.Context, root string) ([]types.Finding, error) {
+func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, error) {
 	var (
-		findings []types.Finding
-		mu       sync.Mutex
-		wg       sync.WaitGroup
+		result types.ScanResult
+		mu     sync.Mutex
+		wg     sync.WaitGroup
 	)
 
 	sem := make(chan struct{}, 100)
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			mu.Lock()
+			result.Errors = append(result.Errors, types.ScanError{Path: path, Err: err})
+			mu.Unlock()
+			return nil
 		}
 
 		if d.IsDir() {
 			if shouldIgnoreDir(d.Name()) {
 				return filepath.SkipDir
 			}
-			return nil
-		}
-
-		if s.shouldIgnoreDir(d.Name()) {
 			return nil
 		}
 
@@ -82,12 +78,15 @@ func (s *FileScanner) Scan(ctx context.Context, root string) ([]types.Finding, e
 
 			f, err := s.scanFile(ctx, path)
 			if err != nil {
+				mu.Lock()
+				result.Errors = append(result.Errors, types.ScanError{Path: path, Err: err})
+				mu.Unlock()
 				return
 			}
 
 			if len(f) > 0 {
 				mu.Lock()
-				findings = append(findings, f...)
+				result.Findings = append(result.Findings, f...)
 				mu.Unlock()
 			}
 		}(path)
@@ -98,10 +97,10 @@ func (s *FileScanner) Scan(ctx context.Context, root string) ([]types.Finding, e
 	wg.Wait()
 
 	if err != nil {
-		return nil, fmt.Errorf("scan walk %s: %w", root, err)
+		return types.ScanResult{}, fmt.Errorf("scan walk %s: %w", root, err)
 	}
 
-	return findings, nil
+	return result, nil
 }
 
 func (s *FileScanner) scanFile(ctx context.Context, path string) ([]types.Finding, error) {

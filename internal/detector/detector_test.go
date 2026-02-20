@@ -2,6 +2,7 @@ package detector
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -65,10 +66,10 @@ func TestDetect(t *testing.T) {
 
 func TestRedactedValue(t *testing.T) {
 	tests := []struct {
-		name            string
-		content         string
-		wantNotContain  string // raw secret must NOT appear in RedactedValue
-		wantContain     string // context key MUST appear in RedactedValue
+		name           string
+		content        string
+		wantNotContain string // raw secret must NOT appear in RedactedValue
+		wantContain    string // context key MUST appear in RedactedValue
 	}{
 		{
 			name:           "AWS Secret Key redacts value but keeps key name",
@@ -127,7 +128,6 @@ func TestRedactedValue(t *testing.T) {
 
 func TestRedactedValue_NeverEmpty(t *testing.T) {
 	// Any finding must always have a non-empty RedactedValue.
-	// An empty RedactedValue would silently suppress output context.
 	d := New(nil)
 
 	inputs := []string{
@@ -146,7 +146,6 @@ func TestRedactedValue_NeverEmpty(t *testing.T) {
 		}
 	}
 }
-
 
 func TestDetector_CustomPatterns(t *testing.T) {
 	d := New([]Pattern{

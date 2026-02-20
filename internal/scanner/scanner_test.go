@@ -109,9 +109,9 @@ func TestScan(t *testing.T) {
 		{
 			name: "multiple secret files returns all findings",
 			files: map[string]string{
-				".env":          "API_KEY=secret1",
-				"config.yaml":   "token: secret2",
-				".aws/creds":    "key=secret3",
+				".env":        "API_KEY=secret1",
+				"config.yaml": "token: secret2",
+				".aws/creds":  "key=secret3",
 			},
 			detector:    alwaysFindsSecret(),
 			wantCount:   3,
@@ -143,10 +143,45 @@ func TestScan(t *testing.T) {
 				t.Fatalf("Scan() unexpected error: %v", err)
 			}
 
-			if len(got) != len(tt.want) {
-				t.Errorf("Scan() got %d findings, want %d", len(got), len(tt.want))
+			if len(got.Findings) != tt.wantCount {
+				t.Errorf("Scan() got %d findings, want %d", len(got.Findings), tt.wantCount)
 			}
 		})
+	}
+}
+
+func TestScan_CollectsIOErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file then remove read permission so scanFile fails.
+	path := filepath.Join(tmpDir, "unreadable.txt")
+	if err := os.WriteFile(path, []byte("content"), 0000); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0644) })
+
+	s := New(alwaysFindsSecret())
+	result, err := s.Scan(context.Background(), tmpDir)
+
+	// Scan itself must not return a fatal error — it collects file errors.
+	if err != nil {
+		t.Fatalf("Scan() returned fatal error, want nil: %v", err)
+	}
+
+	// The unreadable file must appear in Errors, not silently skipped.
+	if !result.HasErrors() {
+		t.Error("Scan() HasErrors() = false, want true — unreadable file must be reported")
+	}
+
+	found := false
+	for _, se := range result.Errors {
+		if se.Path == path {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error for path %q in ScanResult.Errors, not found\nErrors: %v", path, result.Errors)
 	}
 }
 

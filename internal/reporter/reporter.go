@@ -56,11 +56,11 @@ func reportText(w io.Writer, findings []types.Finding) error {
 
 	safe := toReportFindings(findings)
 
-	fmt.Fprintf(w, "Found %d potential secrets:\n\n", len(findings))
-	for i, f := range findings {
+	fmt.Fprintf(w, "Found %d potential secrets:\n\n", len(safe))
+	for i, f := range safe {
 		fmt.Fprintf(w, "[%d] %s:%d\n", i+1, f.FilePath, f.LineNumber)
 		fmt.Fprintf(w, "    Type: %s\n", f.SecretType)
-		fmt.Fprintf(w, "    Match: %s\n\n", f.Value)
+		fmt.Fprintf(w, "    Match: %s\n\n", f.RedactedValue)
 	}
 	return nil
 }
