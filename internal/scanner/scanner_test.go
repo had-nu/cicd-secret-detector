@@ -217,11 +217,3 @@ func TestShouldIgnoreDir(t *testing.T) {
 		})
 	}
 }
-
-// Helper to find filename for a finding
-func getFileName(files map[string]string, f types.Finding) string {
-	for name := range files {
-		return name
-	}
-	return ""
-}
