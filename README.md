@@ -1,6 +1,6 @@
 # CI/CD Secret Detector
 
-A Go tool designed to catch hardcoded secrets in files before they reach production. It focuses on simplicity, reliability, and ease of integration into CI/CD pipelines.
+Go CLI that detects hardcoded secrets before they reach production by combining pattern matching with Shannon entropy filtering to cut false positives. Integrates natively into CI/CD pipelines via non-zero exit codes, and scans any text file recursively using a concurrent worker pool.
 
 ## Features
 
