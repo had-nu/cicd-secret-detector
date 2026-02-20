@@ -11,9 +11,18 @@ import (
 type Pattern struct {
 	Name  string
 	Regex *regexp.Regexp
+	Redact func(match string) string
 }
 
-// DefaultPatterns returns a list of common secret patterns.
+func redactValue(match string) string {
+	for i, ch := range match {
+		if ch == '=' || ch == ':' {
+			return strings.TrimSpace(match[:i+1]) + " [REDACTED]"
+		}
+	}
+	return "[REDACTED]"
+}
+
 func DefaultPatterns() []Pattern {
 	return []Pattern{
 		{
@@ -35,12 +44,10 @@ func DefaultPatterns() []Pattern {
 	}
 }
 
-// Detector scans content for secrets using defined patterns.
 type Detector struct {
 	patterns []Pattern
 }
 
-// New creates a new Detector with the given patterns; If no patterns are provided, it uses DefaultPatterns.
 func New(patterns []Pattern) *Detector {
 	if len(patterns) == 0 {
 		patterns = DefaultPatterns()
@@ -48,7 +55,6 @@ func New(patterns []Pattern) *Detector {
 	return &Detector{patterns: patterns}
 }
 
-// Detect scans the provided content and returns a list of findings.
 func (d *Detector) Detect(content []byte) ([]types.Finding, error) {
 	lines := d.parseLines(content)
 	findings := d.scanLines(lines)
@@ -59,8 +65,6 @@ func (d *Detector) parseLines(content []byte) []string {
 	return strings.Split(string(content), "\n")
 }
 
-// scanLines checks all lines against all patterns.
-// Returns accumulated findings from all matches.
 func (d *Detector) scanLines(lines []string) []types.Finding {
 	findings := make([]types.Finding, 0)
 
@@ -72,7 +76,6 @@ func (d *Detector) scanLines(lines []string) []types.Finding {
 	return findings
 }
 
-// scanLine checks a single line against all patterns; Returns all matches found on this line.
 func (d *Detector) scanLine(line string, lineNumber int) []types.Finding {
 	findings := make([]types.Finding, 0, len(d.patterns))
 
@@ -85,16 +88,22 @@ func (d *Detector) scanLine(line string, lineNumber int) []types.Finding {
 	return findings
 }
 
-// checkPattern tests if a pattern matches the line; Returns (finding, true) if matched, (empty, false) otherwise.
+// Returns (finding, true) if matched, (empty, false) otherwise.
 func (d *Detector) checkPattern(pattern *Pattern, line string, lineNumber int) (types.Finding, bool) {
 	if !pattern.Regex.MatchString(line) {
 		return types.Finding{}, false
 	}
 
+	redacted := "[REDACTED]"
+	if pattern.Redact != nil {
+		redacted = pattern.Redact(match)
+	}
+
 	finding := types.Finding{
-		LineNumber: lineNumber,
-		SecretType: pattern.Name,
-		Value:      strings.TrimSpace(line),
+		LineNumber:    lineNumber,
+		SecretType:    pattern.Name,
+		Value:         strings.TrimSpace(line), // raw: internal use only
+		RedactedValue: redacted,
 	}
 
 	return finding, true
