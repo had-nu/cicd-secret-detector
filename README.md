@@ -106,6 +106,7 @@ The test suite covers:
 
 ```
 cicd-secret-detector/
+├── bin/
 ├── cmd/
 │   └── secret-detector/    # Entry point
 ├── internal/
