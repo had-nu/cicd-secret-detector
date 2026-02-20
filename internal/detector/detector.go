@@ -9,8 +9,8 @@ import (
 
 // Pattern defines a regex for a specific secret type.
 type Pattern struct {
-	Name  string
-	Regex *regexp.Regexp
+	Name   string
+	Regex  *regexp.Regexp
 	Redact func(match string) string
 }
 
@@ -28,18 +28,22 @@ func DefaultPatterns() []Pattern {
 		{
 			Name:  "AWS Access Key ID",
 			Regex: regexp.MustCompile(`(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}`),
+			// No key=value context — redact the whole value.
 		},
 		{
-			Name:  "AWS Secret Access Key",
-			Regex: regexp.MustCompile(`(?i)aws_secret_access_key['"]?\s*(=|:)\s*['"]?[A-Za-z0-9\/+=]{40}['"]?`),
+			Name:   "AWS Secret Access Key",
+			Regex:  regexp.MustCompile(`(?i)aws_secret_access_key['"?]?\s*(=|:)\s*['"]?[A-Za-z0-9\/+=]{40}['"]?`),
+			Redact: redactValue, // keeps key name, hides value
 		},
 		{
 			Name:  "Private Key",
 			Regex: regexp.MustCompile(`-----BEGIN ((EC|PGP|DSA|RSA|OPENSSH) )?PRIVATE KEY( BLOCK)?-----`),
+			// Header line has no value to preserve — full redaction is correct.
 		},
 		{
-			Name:  "Generic API Key",
-			Regex: regexp.MustCompile(`(?i)(api_key|apikey|secret|token)['"]?\s*(=|:)\s*['"]?[a-zA-Z0-9]{16,64}['"]?`),
+			Name:   "Generic API Key",
+			Regex:  regexp.MustCompile(`(?i)(api_key|apikey|secret|token)['"]?\s*(=|:)\s*['"]?[a-zA-Z0-9]{16,64}['"]?`),
+			Redact: redactValue, // keeps key name, hides value
 		},
 	}
 }
@@ -94,6 +98,7 @@ func (d *Detector) checkPattern(pattern *Pattern, line string, lineNumber int) (
 		return types.Finding{}, false
 	}
 
+	match := pattern.Regex.FindString(line)
 	redacted := "[REDACTED]"
 	if pattern.Redact != nil {
 		redacted = pattern.Redact(match)

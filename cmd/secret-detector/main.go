@@ -37,19 +37,24 @@ func run() error {
 	// Scan
 	fmt.Fprintf(os.Stderr, "Scanning %s...\n", *dirArg)
 	start := time.Now()
-	findings, err := s.Scan(ctx, *dirArg)
+	result, err := s.Scan(ctx, *dirArg)
 	if err != nil {
 		return fmt.Errorf("scan: %w", err)
 	}
 	duration := time.Since(start)
-	fmt.Fprintf(os.Stderr, "Scanned in %v. Found %d secrets.\n", duration, len(findings))
+	fmt.Fprintf(os.Stderr, "Scanned in %v. Found %d secrets.\n", duration, len(result.Findings))
+
+	// Report any file-level errors so they are visible to the operator.
+	for _, se := range result.Errors {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", se)
+	}
 
 	// Report
-	if err := reporter.Report(os.Stdout, findings, *format); err != nil {
+	if err := reporter.Report(os.Stdout, result.Findings, *format); err != nil {
 		return fmt.Errorf("report: %w", err)
 	}
 
-	if len(findings) > 0 {
+	if len(result.Findings) > 0 {
 		return fmt.Errorf("secrets found")
 	}
 
