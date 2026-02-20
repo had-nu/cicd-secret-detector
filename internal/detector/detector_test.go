@@ -10,7 +10,7 @@ func TestDetect(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
-		want    int // number of findings
+		want    int
 	}{
 		{
 			name:    "AWS Access Key",
@@ -39,7 +39,7 @@ func TestDetect(t *testing.T) {
 		},
 	}
 
-	d := New(nil) // Use default patterns
+	d := New(nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -52,7 +52,6 @@ func TestDetect(t *testing.T) {
 				t.Errorf("Detect() = %d findings, want %d", len(got), tt.want)
 			}
 			if len(got) > 0 {
-				// Basic check to ensure finding has data
 				if got[0].SecretType == "" {
 					t.Error("Finding.SecretType is empty")
 				}
@@ -164,5 +163,179 @@ func TestDetector_CustomPatterns(t *testing.T) {
 	}
 	if findings[0].RedactedValue != "[REDACTED]" {
 		t.Errorf("Expected [REDACTED], got %q", findings[0].RedactedValue)
+	}
+}
+
+/*
+	TestShannonEntropy validates the entropy calculation with known reference values.
+
+These are deterministic: entropy of a uniform distribution of N symbols = log2(N).
+*/
+func TestShannonEntropy(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		// wantApprox is the expected value; we allow ±0.01 tolerance.
+		wantApprox float64
+	}{
+		{
+			name:       "empty string is zero",
+			input:      "",
+			wantApprox: 0.0,
+		},
+		{
+			name:       "single character is zero",
+			input:      "aaaaaaaaaa",
+			wantApprox: 0.0,
+		},
+		{
+			name:       "two equal-frequency symbols is 1.0 bit",
+			input:      "ababababab",
+			wantApprox: 1.0,
+		},
+		{
+			name:       "four equal-frequency symbols is 2.0 bits",
+			input:      "abcdabcdabcd",
+			wantApprox: 2.0,
+		},
+		{
+			name: "realistic high-entropy secret-like string",
+			// 40-char AWS-like secret — well above 3.5 bits.
+			input:      "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			wantApprox: 4.1, // empirically ~4.1; just assert > 3.5 below
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shannonEntropy(tt.input)
+			// For the high-entropy case we only care it clears the 3.5 threshold.
+			if tt.name == "realistic high-entropy secret-like string" {
+				if got < 3.5 {
+					t.Errorf("shannonEntropy(%q) = %.4f, want > 3.5", tt.input, got)
+				}
+				return
+			}
+			const tolerance = 0.01
+			if diff := got - tt.wantApprox; diff > tolerance || diff < -tolerance {
+				t.Errorf("shannonEntropy(%q) = %.4f, want %.4f (±%.2f)", tt.input, got, tt.wantApprox, tolerance)
+			}
+		})
+	}
+}
+
+// TestFalsePositives ensures that inputs which syntactically match a secret pattern but carry low entropy are NOT flagged as findings.
+func TestFalsePositives(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			// All-same character — entropy = 0.
+			name:    "api_key with repeated character value is not a secret",
+			content: "api_key: aaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		{
+			// Common placeholder value — very low entropy.
+			name:    "api_key with 'your_api_key_here' placeholder is not a secret",
+			content: "api_key: your_api_key_here_123456",
+		},
+		{
+			/*IMPORTANT: sequential alphabet "abcdefghijklmnopqrstuvwxyz..." is NOT
+			low-entropy — it has ~29 unique characters giving ~4.8 bits, which
+			exceeds our 3.5 threshold and IS correctly flagged.
+			Low entropy requires FEW unique characters with HIGH repetition.
+			An 8-symbol repeating cycle gives entropy = log2(8) = 3.0 bits < 3.5.*/
+			name:    "token with 8-symbol repeating cycle (entropy~3.0) is not a secret",
+			content: "token: abcdefghabcdefghabcdefghab", // 32 chars, 8 unique → 3.0 bits
+		},
+		{
+			// Common documentation example value.
+			name:    "secret with 'changeme' padded is not a secret",
+			content: "secret: changemechangemechangemech",
+		},
+		{
+			// AWS Secret Access Key with a low-entropy placeholder.
+			name:    "aws_secret_access_key with repeated value is not a secret",
+			content: "aws_secret_access_key = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		},
+		{
+			// Generic API key whose value is all lowercase ascii — entropy ~4.7 but we also test a known low-entropy repeated string.
+			name:    "api_key with all-same-char 32-char value is not a secret",
+			content: "api_key = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		},
+	}
+
+	d := New(nil)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings, err := d.Detect([]byte(tt.content))
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			if len(findings) != 0 {
+				t.Errorf("false positive: Detect() returned %d finding(s) for low-entropy input %q, want 0\nfindings: %+v",
+					len(findings), tt.content, findings)
+			}
+		})
+	}
+}
+
+// TestEntropyBoundary exercises values just below and just above the 3.5-bit threshold to confirm the filter is neither overly permissive nor overly strict.
+func TestEntropyBoundary(t *testing.T) {
+	// buildGenericAPILine wraps a value in a "token: <value>" line so it matches the Generic API Key pattern.
+	buildGenericAPILine := func(value string) string {
+		return "token: " + value
+	}
+
+	tests := []struct {
+		name         string
+		value        string // the raw value portion (16–64 chars, alphanumeric)
+		wantFindings int
+	}{
+		{
+			// Two alternating chars gives entropy = 1.0 — well below 3.5.
+			name:         "two-symbol alternating (entropy~1.0) must not be flagged",
+			value:        "abababababababab", // 16 chars
+			wantFindings: 0,
+		},
+		{
+			// Four-symbol round-robin gives entropy = 2.0 — still below 3.5.
+			name:         "four-symbol round-robin (entropy~2.0) must not be flagged",
+			value:        "abcdabcdabcdabcd", // 16 chars
+			wantFindings: 0,
+		},
+		{
+			// A truly random-looking base62 string — entropy well above 3.5 (this must be caught).
+			name:         "high-entropy alphanumeric token must be flagged",
+			value:        "x7Kp2mQnR9vLwZ4s", // 17 unique-ish chars
+			wantFindings: 1,
+		},
+		{
+			// Mixed-case + digits with enough diversity — should clear 3.5 threshold.
+			name:         "diverse mixed-case token must be flagged",
+			value:        "aB3cD4eF5gH6iJ7k",
+			wantFindings: 1,
+		},
+	}
+
+	d := New(nil)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := buildGenericAPILine(tt.value)
+			ent := shannonEntropy(tt.value)
+			t.Logf("value=%q entropy=%.4f", tt.value, ent)
+
+			findings, err := d.Detect([]byte(line))
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			if len(findings) != tt.wantFindings {
+				t.Errorf("Detect(%q) = %d finding(s), want %d (entropy=%.4f)",
+					line, len(findings), tt.wantFindings, ent)
+			}
+		})
 	}
 }
