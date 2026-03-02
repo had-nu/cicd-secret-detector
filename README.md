@@ -1,5 +1,10 @@
 # Vexil
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/had-nu/vexil.svg)](https://pkg.go.dev/github.com/had-nu/vexil)
+[![Go Report Card](https://goreportcard.com/badge/github.com/had-nu/vexil)](https://goreportcard.com/report/github.com/had-nu/vexil)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Release](https://img.shields.io/github/v/release/had-nu/vexil)](https://github.com/had-nu/vexil/releases/latest)
+
 A Go-based, CI/CD-native tool designed to detect hardcoded secrets in files before they reach production. It focuses on zero-fluff reliability, speed, and accuracy through mathematical entropy analysis and confidence scoring.
 
 ## Philosophy
@@ -18,6 +23,12 @@ A Go-based, CI/CD-native tool designed to detect hardcoded secrets in files befo
 - **Confidence Scoring:** Outputs the calculated entropy as a non-binary risk metric (`Low`, `Medium`, `High`, `Critical`), enabling downstream tools to ingest proportional risk.
 - **Fail-Fast:** Exits with a non-zero status code (`1`) if secrets are found.
 - **Format Agnostic & Fast:** Scans any text file recursively, powered by a concurrent worker pool, while automatically respecting `.git`, `node_modules`, `vendor`, and `testdata` ignores.
+
+## Wardex Integration
+
+Vexil is natively designed to operate as a high-fidelity intelligence feed for **Wardex** — the Risk-Based Release Gate. 
+
+Instead of acting as a binary block/allow switch (which causes developer fatigue on false positives), Vexil emits the robust `.json` output containing explicit `Confidence` scores based on mathematical thresholds. Wardex ingests this payload, maps Vexil's `Critical` and `High` entropy findings to its internal risk engine, and asserts them against the defined `RiskAppetite` of the current RBAC configuration context to determine if the pipeline should be blocked or if the risk can be accepted via compensating controls.
 
 ## Installation
 

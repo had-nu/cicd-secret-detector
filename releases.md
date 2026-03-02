@@ -7,4 +7,9 @@ This document tracks all formal releases and version tags of Vexil.
 
 ## Tagged Versions
 
-*No formal tags have been pushed to GitHub yet under the Vexil branding. The current state reflects the `feat/confidence-scoring-and-rebrand` integration target.*
+### [v2.0.0] - Vexil (Confidence Scoring & Wardex Integration)
+- Formalized project rebranding to **Vexil**.
+- Implemented **Confidence Scoring** (Low, Medium, High, Critical) based on Shannon Entropy math.
+- Complete Open Source documentation standards adopted (Code of Conduct, Contributing, Changelog).
+- Introduced minimalist quantum-cryptography CLI banner.
+- Direct JSON payload output compatibility integration built for Wardex.
