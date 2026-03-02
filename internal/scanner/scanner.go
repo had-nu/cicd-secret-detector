@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/hadnu/cicd-secret-detector/internal/types"
+	"github.com/had-nu/vexil/internal/types"
 )
 
 // Detector defines the behavior required to detect secrets in content.
