@@ -18,6 +18,7 @@ type reportFinding struct {
 	ValueHash            string  `json:"value_hash"`
 	Entropy              float64 `json:"entropy,omitempty"`
 	Confidence           string  `json:"confidence,omitempty"`
+	RecencyTier          string  `json:"recency_tier,omitempty"`
 	DuplicateAcrossFiles bool    `json:"duplicate_across_files,omitempty"`
 }
 
@@ -52,6 +53,7 @@ func toReportFindings(findings []types.Finding, dupMap map[string]bool) []report
 			ValueHash:            f.ValueHash,
 			Entropy:              f.Entropy,
 			Confidence:           f.Confidence,
+			RecencyTier:          f.RecencyTier,
 			DuplicateAcrossFiles: dupMap[f.ValueHash],
 		}
 	}
@@ -151,6 +153,9 @@ func reportText(w io.Writer, findings []types.Finding) error {
 		fmt.Fprintf(w, "    Type: %s\n", f.SecretType)
 		if f.Confidence != "" {
 			fmt.Fprintf(w, "    Confidence: %s (Entropy: %.2f)\n", f.Confidence, f.Entropy)
+		}
+		if f.RecencyTier != "" {
+			fmt.Fprintf(w, "    Temporal Exposure: %s\n", f.RecencyTier)
 		}
 		fmt.Fprintf(w, "    Match: %s\n\n", f.RedactedValue)
 	}

@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/had-nu/vexil/internal/detector"
+	"github.com/had-nu/vexil/internal/gitscanner"
 	"github.com/had-nu/vexil/internal/reporter"
 	"github.com/had-nu/vexil/internal/scanner"
+	"github.com/had-nu/vexil/internal/types"
 	"github.com/had-nu/vexil/internal/ui"
 )
 
@@ -24,9 +26,10 @@ func main() {
 
 func run() error {
 	var (
-		dirArg  = flag.String("dir", ".", "Directory to scan")
-		format  = flag.String("format", "text", "Output format (text, json, sarif)")
-		exclude = flag.String("exclude", "", "Comma-separated list of directories to exclude")
+		dirArg   = flag.String("dir", ".", "Directory to scan")
+		format   = flag.String("format", "text", "Output format (text, json, sarif)")
+		exclude  = flag.String("exclude", "", "Comma-separated list of directories to exclude")
+		gitAware = flag.Bool("git-aware", false, "Scan the entire git history (log -p) instead of the working tree")
 	)
 	flag.Parse()
 
@@ -50,15 +53,36 @@ func run() error {
 
 	// Scan
 	start := time.Now()
-	result, err := s.Scan(ctx, *dirArg)
-	if err != nil {
-		return fmt.Errorf("scan: %w", err)
+	var result types.ScanResult
+	
+	if *gitAware {
+		gs := gitscanner.New(d, *dirArg)
+		if gs.IsShallowClone() {
+			fmt.Fprintf(os.Stderr, "warning: shallow clone detected — git history scan is incomplete\n")
+		}
+		
+		findings, err := gs.ScanHistory(ctx)
+		if err != nil {
+			return fmt.Errorf("git history scan: %w", err)
+		}
+		result.Findings = findings
+		// Note: we don't count files for git stream, just the total findings
+	} else {
+		res, err := s.Scan(ctx, *dirArg)
+		if err != nil {
+			return fmt.Errorf("scan: %w", err)
+		}
+		result = res
 	}
 	duration := time.Since(start)
 	
 	// Print summary exclusively in text mode. Wait, actually we shouldn't ruin JSON stream
 	if *format == "text" {
-		fmt.Fprintf(os.Stderr, "Scanned %d files in %v. Found %d secrets.\n", result.FilesScanned, duration, len(result.Findings))
+		if *gitAware {
+			fmt.Fprintf(os.Stderr, "Scanned git history in %v. Found %d secrets.\n", duration, len(result.Findings))
+		} else {
+			fmt.Fprintf(os.Stderr, "Scanned %d files in %v. Found %d secrets.\n", result.FilesScanned, duration, len(result.Findings))
+		}
 	}
 
 	// Report any file-level errors so they are visible to the operator.
