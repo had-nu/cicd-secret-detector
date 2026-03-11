@@ -355,23 +355,32 @@ func TestEntropyBoundary(t *testing.T) {
 	}
 }
 
-func TestCalculateConfidence(t *testing.T) {
+func TestValueHashStability(t *testing.T) {
 	tests := []struct {
-		name    string
-		entropy float64
-		want    string
+		name  string
+		value string
+		want  string
 	}{
-		{"Low confidence (<3.8)", 3.79, "Low"},
-		{"Medium confidence (<4.2)", 4.19, "Medium"},
-		{"High confidence (<4.6)", 4.59, "High"},
-		{"Critical confidence (>=4.6)", 4.7, "Critical"},
+		{
+			name:  "deterministic hash for AWS key",
+			value: "AKIAIOSFODNN7EXAMPLE",
+			want:  "1a5d44a2dca19669",
+		},
+		{
+			name:  "different value produces different hash",
+			value: "AKIAIOSFODNN7EXAMPLE2",
+			want:  "3fb1a5d1ef2a6caf",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateConfidence(tt.entropy)
+			got := hashValue(tt.value)
 			if got != tt.want {
-				t.Errorf("calculateConfidence(%v) = %v, want %v", tt.entropy, got, tt.want)
+				t.Errorf("hashValue(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+			if len(got) != 16 {
+				t.Errorf("hashValue(%q) length = %d, want 16", tt.value, len(got))
 			}
 		})
 	}

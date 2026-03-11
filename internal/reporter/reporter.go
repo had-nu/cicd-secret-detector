@@ -80,7 +80,6 @@ type scanMetadata struct {
 	Timestamp               string `json:"timestamp"`
 	FilesScanned            int    `json:"files_scanned"`
 	FilesWithFindings       int    `json:"files_with_findings"`
-	WorstConfidence         string `json:"worst_confidence"`
 	CredentialReuseDetected bool   `json:"credential_reuse_detected"`
 	ScanErrors              int    `json:"scan_errors"`
 }
@@ -95,37 +94,19 @@ func reportJSON(w io.Writer, result types.ScanResult) error {
 	credentialReuseDetected := len(dupMap) > 0
 	safeFindings := toReportFindings(result.Findings, dupMap)
 	
-	filesWithFindings := 0
-	worstConfVal := -1
-	worstConfStr := "None"
-	
-	confMap := map[string]int{
-		"Low": 1,
-		"Medium": 2,
-		"High": 3,
-		"Critical": 4,
-	}
-
 	uniqueFiles := make(map[string]bool)
 	for _, f := range safeFindings {
 		uniqueFiles[f.FilePath] = true
-		if val, ok := confMap[f.Confidence]; ok {
-			if val > worstConfVal {
-				worstConfVal = val
-				worstConfStr = f.Confidence
-			}
-		}
 	}
-	filesWithFindings = len(uniqueFiles)
+	filesWithFindings := len(uniqueFiles)
 
 	report := v2JSONReport{
 		ScanMetadata: scanMetadata{
 			Tool:                    "vexil",
-			Version:                 "2.3.0",
+			Version:                 "3.0.0",
 			Timestamp:               time.Now().UTC().Format(time.RFC3339),
 			FilesScanned:            result.FilesScanned,
 			FilesWithFindings:       filesWithFindings,
-			WorstConfidence:         worstConfStr,
 			CredentialReuseDetected: credentialReuseDetected,
 			ScanErrors:              len(result.Errors),
 		},

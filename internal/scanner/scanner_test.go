@@ -145,6 +145,13 @@ func TestScan(t *testing.T) {
 			if len(got.Findings) != tt.wantCount {
 				t.Errorf("Scan() got %d findings, want %d", len(got.Findings), tt.wantCount)
 			}
+
+			// Verify v3.0 contextual exposure
+			for _, f := range got.Findings {
+				if f.ExposureContext == "" {
+					t.Errorf("Scan() finding in %q has empty ExposureContext, want classification", f.FilePath)
+				}
+			}
 		})
 	}
 }
