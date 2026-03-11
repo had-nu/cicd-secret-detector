@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/had-nu/vexil/internal/classifier"
 	"github.com/had-nu/vexil/internal/scanner"
 	"github.com/had-nu/vexil/internal/types"
 )
@@ -85,6 +86,7 @@ func (g *GitScanner) ScanHistory(ctx context.Context) ([]types.Finding, error) {
 			// Tag findings with virtual path
 			for _, f := range chunkFindings {
 				f.FilePath = fmt.Sprintf("git:commit/%s:%s", currentCommit, currentFile)
+				f.ExposureContext = classifier.InferExposureContext(currentFile)
 				findings = append(findings, f)
 			}
 		}
