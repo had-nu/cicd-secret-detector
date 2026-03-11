@@ -1,5 +1,5 @@
 services:
-  secret-detector:
+  vexil:
     build: .
     volumes:
       - .:/src
