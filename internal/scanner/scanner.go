@@ -80,7 +80,7 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 			return nil // Continue walking, but log the error
 		}
 
-		if info.Name() == "README.md" {
+		if info.Name() == "README.md" || info.Name() == "vexil" || info.Name() == "SPEC_vexil_v2.3-v3.0.md" {
 			return nil // Skip this specific file
 		}
 
