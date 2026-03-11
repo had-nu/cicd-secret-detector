@@ -10,6 +10,8 @@ type Finding struct {
 	RedactedValue string // Safe for output: preserves context, hides the secret
 	Entropy       float64
 	Confidence    string
+	RecencyTier   string
+	DuplicateAcrossFiles bool
 }
 
 // ScanError records a file-level error encountered during scanning.

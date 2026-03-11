@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/had-nu/vexil/internal/types"
 )
@@ -77,7 +80,7 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 			return nil // Continue walking, but log the error
 		}
 
-		if info.Name() == "README.md" {
+		if info.Name() == "README.md" || info.Name() == "vexil" || info.Name() == "SPEC_vexil_v2.3-v3.0.md" {
 			return nil // Skip this specific file
 		}
 
@@ -131,7 +134,62 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 	}
 
 	result.FilesScanned = filesScanned
+	
+	// Phase B: Compute Recency Tier 
+	s.enrichWithRecency(ctx, root, result.Findings)
+	
 	return result, nil
+}
+
+func (s *FileScanner) enrichWithRecency(ctx context.Context, repoRoot string, findings []types.Finding) {
+	// Only execute if it's a git repository workspace
+	if _, err := os.Stat(filepath.Join(repoRoot, ".git")); os.IsNotExist(err) {
+		return
+	}
+
+	uniqueFiles := make(map[string]bool)
+	for _, f := range findings {
+		uniqueFiles[f.FilePath] = true
+	}
+
+	// Circuit Breaker: If > 50 files have secrets, repository is flooded. 
+	// Abort subqueries to save OS from hanging.
+	if len(uniqueFiles) > 50 {
+		return
+	}
+
+	cache := make(map[string]string)
+
+	for i, f := range findings {
+		if tier, exists := cache[f.FilePath]; exists {
+			findings[i].RecencyTier = tier
+			continue
+		}
+
+		tier := "unknown"
+		// Git log --follow format=%aI returns ISO8601 of the author date of the last commit
+		cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "log", "--follow", "-1", "--format=%aI", "--", f.FilePath)
+		out, err := cmd.Output()
+		if err == nil {
+			dateStr := strings.TrimSpace(string(out))
+			if parsed, err := time.Parse(time.RFC3339, dateStr); err == nil {
+				days := time.Since(parsed).Hours() / 24
+				switch {
+				case days <= 30:
+					tier = "active"
+				case days <= 180:
+					tier = "recent"
+				case days <= 730: // 2 years
+					tier = "stale"
+				default:
+					tier = "archived"
+				}
+			}
+		}
+		
+		cache[f.FilePath] = tier
+		findings[i].RecencyTier = tier
+	}
 }
 
 func (s *FileScanner) scanFile(ctx context.Context, path string) ([]types.Finding, error) {
