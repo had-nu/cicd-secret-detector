@@ -86,7 +86,7 @@ func DefaultPatterns() []Pattern {
 		{
 			Name:        "Infrastructure Password",
 			SecretClass: "credential",
-			Regex:       regexp.MustCompile(`(?i)(password|passwd|pwd|secret)\s*(=|:)\s*['"]?[^\s'"]{8,}['"]?`),
+			Regex:       regexp.MustCompile(`(?i)(password|passwd|pwd)\s*(=|:)\s*['"]?[^\s'"]{8,}['"]?`),
 			Redact:      redactValue,
 			MinEntropy:  0.0,
 		},
