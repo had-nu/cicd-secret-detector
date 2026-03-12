@@ -24,6 +24,25 @@ A Go-based, CI/CD-native tool designed to detect hardcoded secrets in files befo
 
 ## Installation
 
+> [!IMPORTANT]
+> **Version History Reconstruction (v2.5.0 Patch):**
+> We have recently performed a major cleanup and alignment of the repository's Git tags and version history to ensure consistency with our documentation. 
+> To avoid local conflicts and ensure you are using the correct release path, we recommend a clean reinstallation:
+> 
+> ```bash
+> # Remove your current local copy
+> rm -rf vexil
+> 
+> # Clone the fresh, aligned repository
+> git clone https://github.com/had-nu/vexil.git
+> cd vexil
+> 
+> # Build the latest stable version (v2.5.0)
+> go build -o vexil cmd/vexil/main.go
+> ```
+
+To install the latest version manually:
+
 ```bash
 go install github.com/had-nu/vexil/cmd/vexil@latest
 ```
