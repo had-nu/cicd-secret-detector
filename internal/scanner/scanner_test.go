@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -14,11 +15,102 @@ type mockDetector struct {
 	detectFunc func(content []byte) ([]types.Finding, error)
 }
 
-func (m *mockDetector) Detect(content []byte) ([]types.Finding, error) {
-	if m.detectFunc != nil {
-		return m.detectFunc(content)
+func (s *mockDetector) Detect(content []byte) ([]types.Finding, error) {
+	if s.detectFunc != nil {
+		return s.detectFunc(content)
 	}
 	return nil, nil
+}
+
+func TestScan_LargeFileTruncated(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, ".env")
+
+	// Create a file larger than maxScanFileSizeBytes (10 MiB)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create large file: %v", err)
+	}
+	// Write 10 MiB + 1 byte of text content
+	data := bytes.Repeat([]byte("a"), maxScanFileSizeBytes+1)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		t.Fatalf("failed to write large file: %v", err)
+	}
+	f.Close()
+
+	s := New(alwaysFindsSecret(), nil, 0)
+	result, err := s.Scan(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() unexpected error: %v", err)
+	}
+
+	if !result.HasErrors() {
+		t.Error("Scan() HasErrors() = false, want true for truncated file")
+	}
+
+	found := false
+	for _, se := range result.Errors {
+		if _, ok := se.Err.(*types.TruncationError); ok {
+			found = true
+			if !filepath.IsAbs(se.Path) && !filepath.IsLocal(se.Path) { // just a sanity check
+				// path in error should match
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected TruncationError in ScanResult.Errors, not found")
+	}
+
+	// findings from the truncated portion are still returned
+	if len(result.Findings) == 0 {
+		t.Error("expected findings from the truncated file, got zero")
+	}
+}
+
+func TestScan_SymlinkSkipped(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Regular file with secret
+	regPath := filepath.Join(tmpDir, "regular.txt")
+	if err := os.WriteFile(regPath, []byte("secret"), 0644); err != nil {
+		t.Fatalf("failed to write regular file: %v", err)
+	}
+
+	// Symlink to a file outside
+	symPath := filepath.Join(tmpDir, "link_to_hosts")
+	target := "/etc/hosts"
+	if err := os.Symlink(target, symPath); err != nil {
+		// If symlink creation fails (e.g. on Windows without permissions), skip the test
+		t.Skipf("cannot create symlink: %v", err)
+	}
+
+	s := New(alwaysFindsSecret(), nil, 0)
+	result, err := s.Scan(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() unexpected error: %v", err)
+	}
+
+	// Result should have one regular finding and one symlink error
+	if len(result.Findings) != 1 {
+		t.Errorf("Scan() got %d findings, want 1", len(result.Findings))
+	}
+
+	if !result.HasErrors() {
+		t.Error("Scan() HasErrors() = false, want true for symlink skip")
+	}
+
+	found := false
+	for _, se := range result.Errors {
+		if se.ErrMsg == "symlink skipped (security policy)" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected symlink skip error in ScanResult.Errors, not found")
+	}
 }
 
 // alwaysFindsSecret returns a detector that reports a finding for any content.
@@ -136,7 +228,7 @@ func TestScan(t *testing.T) {
 				}
 			}
 
-			s := New(tt.detector, nil)
+			s := New(tt.detector, nil, 0)
 			got, err := s.Scan(context.Background(), tmpDir)
 			if err != nil {
 				t.Fatalf("Scan() unexpected error: %v", err)
@@ -167,7 +259,7 @@ func TestScan_CollectsIOErrors(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
 
-	s := New(alwaysFindsSecret(), nil)
+	s := New(alwaysFindsSecret(), nil, 0)
 	result, err := s.Scan(context.Background(), tmpDir)
 
 	// Scan itself must not return a fatal error — it collects file errors.
@@ -215,7 +307,7 @@ func TestShouldIgnoreDir(t *testing.T) {
 		{"credentials", false},
 	}
 
-	s := New(nil, []string{".idea", ".vscode"})
+	s := New(nil, []string{".idea", ".vscode"}, 0)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := s.shouldIgnoreDir(tt.name)

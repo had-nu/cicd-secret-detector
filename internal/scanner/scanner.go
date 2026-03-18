@@ -1,8 +1,10 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,11 @@ import (
 	"github.com/had-nu/vexil/internal/classifier"
 	"github.com/had-nu/vexil/internal/types"
 )
+
+// maxScanFileSizeBytes is the maximum number of bytes read from any single file.
+// Files exceeding this size are truncated silently at the byte boundary.
+// The truncation is recorded in ScanResult.Errors with a structured message.
+const maxScanFileSizeBytes = 10 << 20 // 10 MiB
 
 // Detector defines the behavior required to detect secrets in content.
 type Detector interface {
@@ -28,12 +35,16 @@ var defaultIgnoreDirs = map[string]struct{}{
 
 // FileScanner scans files for secrets.
 type FileScanner struct {
-	detector   Detector
-	ignoreDirs map[string]struct{}
+	detector    Detector
+	ignoreDirs  map[string]struct{}
+	concurrency int
 }
 
 // New creates a new FileScanner.
-func New(d Detector, customExcludes []string) *FileScanner {
+func New(d Detector, customExcludes []string, concurrency int) *FileScanner {
+	if concurrency <= 0 {
+		concurrency = 16
+	}
 	ignores := make(map[string]struct{})
 	for k, v := range defaultIgnoreDirs {
 		ignores[k] = v
@@ -43,11 +54,16 @@ func New(d Detector, customExcludes []string) *FileScanner {
 			ignores[ex] = struct{}{}
 		}
 	}
-	return &FileScanner{detector: d, ignoreDirs: ignores}
+	return &FileScanner{detector: d, ignoreDirs: ignores, concurrency: concurrency}
 }
 
 // Scan walks the root directory and scans files for secrets.
 func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, error) {
+	files, err := prioritise(root, s.ignoreDirs)
+	if err != nil {
+		return types.ScanResult{}, fmt.Errorf("scan prioritisation: %w", err)
+	}
+
 	var (
 		result       types.ScanResult
 		mu           sync.Mutex
@@ -55,63 +71,49 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 		filesScanned int
 	)
 
-	sem := make(chan struct{}, 100)
+	sem := make(chan struct{}, s.concurrency)
 
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			mu.Lock()
-			result.Errors = append(result.Errors, types.ScanError{Path: path, Err: err})
-			mu.Unlock()
-			return nil
-		}
-
-		if d.IsDir() {
-			if s.shouldIgnoreDir(d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Get FileInfo to check for regular file and name
-		info, err := d.Info()
-		if err != nil {
-			mu.Lock()
-			result.Errors = append(result.Errors, types.ScanError{Path: path, Err: err})
-			mu.Unlock()
-			return nil // Continue walking, but log the error
-		}
-
-		if info.Name() == "README.md" || info.Name() == "vexil" || info.Name() == "SPEC_vexil_v2.3-v3.0.md" {
-			return nil // Skip this specific file
-		}
-
-		if !info.Mode().IsRegular() {
-			return nil
+	for _, f := range files {
+		if f.score < 0 {
+			continue // excluded by heuristic
 		}
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			wg.Wait()
+			result.FilesScanned = filesScanned
+			result.Truncated = true
+			s.enrichWithRecency(ctx, root, result.Findings)
+			return result, nil
 		default:
 		}
 
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			return ctx.Err()
+			wg.Wait()
+			result.FilesScanned = filesScanned
+			result.Truncated = true
+			s.enrichWithRecency(ctx, root, result.Findings)
+			return result, nil
 		}
 
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			defer func() { <-sem }() // Release
+			defer func() { <-sem }()
 
 			f, err := s.scanFile(ctx, path)
 			if err != nil {
 				mu.Lock()
-				result.Errors = append(result.Errors, types.ScanError{Path: path, Err: err})
+				result.Errors = append(result.Errors, types.NewScanError(path, err))
 				mu.Unlock()
-				return
+				
+				// Handle non-fatal errors (like truncation) by continuing to process findings.
+				// Fatal errors (e.g. I/O permission denied) should return early.
+				if _, ok := err.(*types.TruncationError); !ok {
+					return
+				}
 			}
 
 			if len(f) > 0 {
@@ -123,26 +125,24 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 			mu.Lock()
 			filesScanned++
 			mu.Unlock()
-		}(path)
-
-		return nil
-	})
+		}(f.path)
+	}
 
 	wg.Wait()
 
-	if err != nil {
-		return types.ScanResult{}, fmt.Errorf("scan walk %s: %w", root, err)
-	}
-
 	result.FilesScanned = filesScanned
-	
-	// Phase B: Compute Recency Tier 
+
+	// Phase B: Compute Recency Tier
 	s.enrichWithRecency(ctx, root, result.Findings)
-	
+
 	return result, nil
 }
 
+// enrichWithRecency annotates findings in-place with git recency tiers.
+// It modifies the findings slice directly; callers must not assume findings
+// are unchanged after this call.
 func (s *FileScanner) enrichWithRecency(ctx context.Context, repoRoot string, findings []types.Finding) {
+	// ... (no changes to implementation)
 	// Only execute if it's a git repository workspace
 	if _, err := os.Stat(filepath.Join(repoRoot, ".git")); os.IsNotExist(err) {
 		return
@@ -198,9 +198,46 @@ func (s *FileScanner) scanFile(ctx context.Context, path string) ([]types.Findin
 		return nil, ctx.Err()
 	}
 
-	content, err := os.ReadFile(path)
+	// Symlinks are skipped unconditionally. Following symlinks during a
+	// recursive scan of an untrusted directory is a denial-of-service vector.
+	// We use Lstat to detect the symlink before opening the file.
+	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, fmt.Errorf("read file %s: %w", path, err)
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("symlink skipped (security policy)")
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	lr := io.LimitReader(f, maxScanFileSizeBytes)
+	content, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	if isBinary(content) {
+		return nil, nil // skip binary files
+	}
+
+	// If the file was truncated, record it as a non-fatal error.
+	if info.Size() > maxScanFileSizeBytes {
+		// We return a TruncationError which the caller (Scan) will record.
+		// findings from the truncated content are still processed below.
+		findings, detectErr := s.detector.Detect(content)
+		if detectErr != nil {
+			return nil, fmt.Errorf("detect %s: %w", path, detectErr)
+		}
+		for i := range findings {
+			findings[i].FilePath = path
+			findings[i].ExposureContext = classifier.InferExposureContext(path)
+		}
+		return findings, &types.TruncationError{Path: path, Size: info.Size(), Limit: maxScanFileSizeBytes}
 	}
 
 	result, err := s.detector.Detect(content)
@@ -211,7 +248,6 @@ func (s *FileScanner) scanFile(ctx context.Context, path string) ([]types.Findin
 	for i := range result {
 		result[i].FilePath = path
 		result[i].ExposureContext = classifier.InferExposureContext(result[i].FilePath)
-		// TODO(phase-b): apply InferExposureContext to gitscanner.go findings
 	}
 
 	return result, nil
@@ -220,4 +256,14 @@ func (s *FileScanner) scanFile(ctx context.Context, path string) ([]types.Findin
 func (s *FileScanner) shouldIgnoreDir(name string) bool {
 	_, ok := s.ignoreDirs[name]
 	return ok
+}
+
+// isBinary reports whether content is likely a binary file.
+// Checks the first 512 bytes for null bytes, which text files do not contain.
+func isBinary(content []byte) bool {
+	check := content
+	if len(check) > 512 {
+		check = check[:512]
+	}
+	return bytes.IndexByte(check, 0) != -1
 }
