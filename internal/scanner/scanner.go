@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/had-nu/vexil/internal/classifier"
+	"github.com/had-nu/vexil/internal/compliance"
 	"github.com/had-nu/vexil/internal/types"
 )
 
@@ -134,6 +135,9 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 
 	// Phase B: Compute Recency Tier
 	s.enrichWithRecency(ctx, root, result.Findings)
+
+	// Phase B: Compliance Enrichment
+	compliance.Enrich(result.Findings)
 
 	return result, nil
 }
