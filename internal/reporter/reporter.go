@@ -9,6 +9,9 @@ import (
 	"github.com/had-nu/vexil/internal/types"
 )
 
+// Version is the current version of Vexil, overridden at build time.
+var Version = "2.5.1"
+
 // reportFinding is the safe, serializable representation of a Finding.
 type reportFinding struct {
 	FilePath             string   `json:"file_path"`
@@ -90,8 +93,10 @@ type scanMetadata struct {
 	Timestamp               string `json:"timestamp"`
 	FilesScanned            int    `json:"files_scanned"`
 	FilesWithFindings       int    `json:"files_with_findings"`
+	WorstConfidence         string `json:"worst_confidence,omitempty"`
 	CredentialReuseDetected bool   `json:"credential_reuse_detected"`
 	ScanErrors              int    `json:"scan_errors"`
+	Truncated               bool   `json:"truncated"`
 }
 
 type v2JSONReport struct {
@@ -113,12 +118,14 @@ func reportJSON(w io.Writer, result types.ScanResult) error {
 	report := v2JSONReport{
 		ScanMetadata: scanMetadata{
 			Tool:                    "vexil",
-			Version:                 "2.5.0",
+			Version:                 Version,
 			Timestamp:               time.Now().UTC().Format(time.RFC3339),
 			FilesScanned:            result.FilesScanned,
 			FilesWithFindings:       filesWithFindings,
+			WorstConfidence:         worstConfidence(result.Findings),
 			CredentialReuseDetected: credentialReuseDetected,
 			ScanErrors:              len(result.Errors),
+			Truncated:               result.Truncated,
 		},
 		Findings: safeFindings,
 	}
@@ -156,4 +163,16 @@ func reportText(w io.Writer, findings []types.Finding) error {
 		_, _ = fmt.Fprintf(w, "    Match: %s\n\n", f.RedactedValue)
 	}
 	return nil
+}
+
+// worstConfidence returns the highest confidence level observed across
+// all findings. Returns empty string if findings is empty.
+func worstConfidence(findings []types.Finding) string {
+	worst := ""
+	for _, f := range findings {
+		if worst == "" || types.ConfidenceLevel[f.Confidence] > types.ConfidenceLevel[worst] {
+			worst = f.Confidence
+		}
+	}
+	return worst
 }

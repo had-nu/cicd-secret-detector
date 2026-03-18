@@ -59,9 +59,28 @@ type ScanResult struct {
 	Truncated    bool // true quando ctx expirou antes do fim
 }
 
-// ConfidenceLevels provides a unified ordering for confidence scores.
-var ConfidenceLevels = map[string]int{
-	"Low": 1, "Medium": 2, "High": 3, "Critical": 4,
+// ConfidenceLevel maps confidence strings to ordinal values for comparison.
+// Higher value = higher confidence = higher risk.
+var ConfidenceLevel = map[string]int{
+	"Low":      0,
+	"Medium":   1,
+	"High":     2,
+	"Critical": 3,
+}
+
+// ShouldBlock returns true if any finding meets or exceeds the block threshold.
+func ShouldBlock(findings []Finding, blockAt string) bool {
+	threshold, ok := ConfidenceLevel[blockAt]
+	if !ok {
+		// Unknown threshold — fail safe by treating as Critical.
+		threshold = ConfidenceLevel["Critical"]
+	}
+	for _, f := range findings {
+		if ConfidenceLevel[f.Confidence] >= threshold {
+			return true
+		}
+	}
+	return false
 }
 
 // HasErrors reports whether any file-level errors were recorded.
