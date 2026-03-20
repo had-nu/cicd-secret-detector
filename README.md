@@ -44,7 +44,7 @@ A Go-based, CI/CD-native tool designed to detect hardcoded secrets in files befo
 > git clone https://github.com/had-nu/vexil.git
 > cd vexil
 > 
-> # Build the latest stable version (v2.5.0)
+> # Build the latest stable version (v2.6.1)
 > go build -o vexil cmd/vexil/main.go
 > ```
 
@@ -81,6 +81,9 @@ docker compose run vexil -dir /src -format json
 
 # SARIF output (Universal dashboard compatibility)
 ./vexil -format sarif
+
+# Print version and exit
+./vexil --version
 ```
 
 ## The Vexil v2.6.1 Risk Model
