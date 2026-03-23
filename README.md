@@ -94,7 +94,7 @@ gates apply their own policy rather than treating all findings as identical.
 
 ## Installation
 ```bash
-go install github.com/had-nu/vexil/cmd/vexil@latest
+go install github.com/had-nu/vexil/v2/cmd/vexil@latest
 ```
 
 Static binary for air-gapped environments:
