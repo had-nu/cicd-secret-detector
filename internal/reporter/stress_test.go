@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 // BenchmarkCrossReferenceScaling measures the performance of cross-referencing findings by hash.

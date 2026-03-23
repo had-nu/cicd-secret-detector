@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 // mockDetector is a simple mock for testing specific outcomes.

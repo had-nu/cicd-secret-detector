@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/had-nu/vexil/internal/classifier"
-	"github.com/had-nu/vexil/internal/compliance"
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/classifier"
+	"github.com/had-nu/vexil/v2/internal/compliance"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 // maxScanFileSizeBytes is the maximum number of bytes read from any single file.

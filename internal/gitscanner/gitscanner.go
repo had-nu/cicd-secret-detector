@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/had-nu/vexil/internal/classifier"
-	"github.com/had-nu/vexil/internal/scanner"
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/classifier"
+	"github.com/had-nu/vexil/v2/internal/scanner"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 // GitScanner wraps a Detector and streams git log output to it.

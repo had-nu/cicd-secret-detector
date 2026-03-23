@@ -3,7 +3,7 @@ package gitscanner
 import (
 	"testing"
 
-	"github.com/had-nu/vexil/internal/detector"
+	"github.com/had-nu/vexil/v2/internal/detector"
 )
 
 func TestGitScanner_IsShallowClone(t *testing.T) {

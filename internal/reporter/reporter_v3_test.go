@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 func TestReportJSON_V3Schema(t *testing.T) {

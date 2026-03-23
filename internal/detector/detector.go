@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 type Pattern struct {

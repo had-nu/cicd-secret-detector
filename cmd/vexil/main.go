@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/had-nu/vexil/internal/detector"
-	"github.com/had-nu/vexil/internal/gitscanner"
-	"github.com/had-nu/vexil/internal/reporter"
-	"github.com/had-nu/vexil/internal/scanner"
-	"github.com/had-nu/vexil/internal/types"
-	"github.com/had-nu/vexil/internal/ui"
+	"github.com/had-nu/vexil/v2/internal/detector"
+	"github.com/had-nu/vexil/v2/internal/gitscanner"
+	"github.com/had-nu/vexil/v2/internal/reporter"
+	"github.com/had-nu/vexil/v2/internal/scanner"
+	"github.com/had-nu/vexil/v2/internal/types"
+	"github.com/had-nu/vexil/v2/internal/ui"
 )
 
 const (

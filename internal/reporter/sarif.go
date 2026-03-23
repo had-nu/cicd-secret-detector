@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/had-nu/vexil/internal/types"
+	"github.com/had-nu/vexil/v2/internal/types"
 )
 
 // SARIF Format structures (subset of v2.1.0 required for Vexil)
