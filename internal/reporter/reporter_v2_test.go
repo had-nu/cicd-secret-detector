@@ -8,7 +8,7 @@ import (
 	"github.com/had-nu/vexil/v2/internal/types"
 )
 
-func TestReportJSON_V3Schema(t *testing.T) {
+func TestReportJSON_V2Schema(t *testing.T) {
 	findings := []types.Finding{
 		{
 			FilePath:        "cmd/main.go",
@@ -51,8 +51,8 @@ func TestReportJSON_V3Schema(t *testing.T) {
 	if !ok {
 		t.Fatal("scan_metadata missing or invalid")
 	}
-	if meta["version"] != "2.6.1" {
-		t.Errorf("expected version 2.6.1, got %v", meta["version"])
+	if meta["version"] != "2.7.0" {
+		t.Errorf("expected version 2.7.0, got %v", meta["version"])
 	}
 
 	// 2. Verify existence of worst_confidence
