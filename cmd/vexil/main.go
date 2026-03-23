@@ -15,6 +15,7 @@ import (
 	"github.com/had-nu/vexil/v2/internal/scanner"
 	"github.com/had-nu/vexil/v2/internal/types"
 	"github.com/had-nu/vexil/v2/internal/ui"
+	"golang.org/x/term"
 )
 
 const (
@@ -93,7 +94,11 @@ func run() (types.ScanResult, error) {
 
 	if *format == "text" {
 		ui.PrintBanner(os.Stderr)
-		fmt.Fprintf(os.Stderr, "Scanning %s...\n", *dirArg)
+		if term.IsTerminal(int(os.Stderr.Fd())) {
+			s.Progress = ui.NewProgressReporter(os.Stderr)
+		} else {
+			fmt.Fprintf(os.Stderr, "Scanning %s...\n", *dirArg)
+		}
 	}
 
 	// Scan

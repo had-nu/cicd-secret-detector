@@ -27,6 +27,13 @@ type Detector interface {
 	Detect(content []byte) ([]types.Finding, error)
 }
 
+// ProgressReporter defines the behavior for reporting scan progress.
+type ProgressReporter interface {
+	StartPhase(name string, total int)
+	Update(current int)
+	EndPhase()
+}
+
 var defaultIgnoreDirs = map[string]struct{}{
 	".git":         {},
 	"vendor":       {},
@@ -39,6 +46,7 @@ type FileScanner struct {
 	detector    Detector
 	ignoreDirs  map[string]struct{}
 	concurrency int
+	Progress    ProgressReporter
 }
 
 // New creates a new FileScanner.
@@ -63,6 +71,10 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 	files, err := prioritise(root, s.ignoreDirs)
 	if err != nil {
 		return types.ScanResult{}, fmt.Errorf("scan prioritisation: %w", err)
+	}
+
+	if s.Progress != nil {
+		s.Progress.StartPhase("Content Analysis", len(files))
 	}
 
 	var (
@@ -125,11 +137,18 @@ func (s *FileScanner) Scan(ctx context.Context, root string) (types.ScanResult, 
 
 			mu.Lock()
 			filesScanned++
+			if s.Progress != nil {
+				s.Progress.Update(filesScanned)
+			}
 			mu.Unlock()
 		}(f.path)
 	}
 
 	wg.Wait()
+
+	if s.Progress != nil {
+		s.Progress.EndPhase()
+	}
 
 	result.FilesScanned = filesScanned
 
@@ -163,9 +182,16 @@ func (s *FileScanner) enrichWithRecency(ctx context.Context, repoRoot string, fi
 		return
 	}
 
+	if s.Progress != nil {
+		s.Progress.StartPhase("Metadata Enrichment", len(findings))
+	}
+
 	cache := make(map[string]string)
 
 	for i, f := range findings {
+		if s.Progress != nil {
+			s.Progress.Update(i + 1)
+		}
 		if tier, exists := cache[f.FilePath]; exists {
 			findings[i].RecencyTier = tier
 			continue
@@ -194,6 +220,10 @@ func (s *FileScanner) enrichWithRecency(ctx context.Context, repoRoot string, fi
 		
 		cache[f.FilePath] = tier
 		findings[i].RecencyTier = tier
+	}
+
+	if s.Progress != nil {
+		s.Progress.EndPhase()
 	}
 }
 
