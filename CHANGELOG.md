@@ -14,7 +14,32 @@ each version boundary as evidenced by the code — not memory or estimation.
 
 ## [Unreleased]
 
-Tracked in `SPEC_vexil_airgap.md`. Covers v2.5.0 through v3.0.0.
+---
+
+## [2.7.1] — 2026-03-24
+
+### Added
+- **SIEM-ready SARIF output:** Enhanced SARIF v2.1.0 reporter for high-fidelity ingestion by Splunk, Elastic, and other SIEMs.
+  - **`partialFingerprints`:** Added `secretHash/v1` (stable secret digest) and `locationHash/v1` (file:line digest truncated to 8 bytes) for reliable deduplication and drift tracking.
+  - **Structured `ruleId`:** Hierarchical format `vexil.<class>.<type-slug>.<confidence>` (e.g., `vexil.key.aws-access-key-id.high`).
+  - **Namespaced `properties`:** All finding metadata (Entropy, Exposure Context, Blast Radius, Compliance Controls, Remediation Steps) now exported under the `vexil/` namespace.
+
+---
+
+## [2.6.0] — 2026-03
+
+### Added
+- **Compliance-native output:** All findings now carry `compliance_controls` (ISO27001, NIS2, DORA, IEC62443 references), `blast_radius` (pipeline / infrastructure / industrial / runtime / contained / minimal), and `remediation_steps` (offline-safe, git-executable).
+- **Exit code discipline:** `0` clean, `1` warn, `2` block, `3` tool error. New `--block-at` flag (default `Critical`) controls the block threshold.
+- **`worst_confidence` restored:** `scan_metadata.worst_confidence` returns the highest confidence level observed across all findings.
+
+---
+
+## [2.5.1] — 2026-03
+
+### Fixed
+- **Bounded file reads:** `scanFile` now uses `io.LimitReader` at 10 MiB to prevent OOM on massive files.
+- **Symlink guard:** `WalkDir` now skips symlinks unconditionally to prevent circular paths and directory traversal risks.
 
 ---
 
